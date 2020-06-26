@@ -4,13 +4,14 @@ from pymongo import MongoClient
 from autocomplete import models
 from nltk.stem import WordNetLemmatizer
 from nltk.corpus import stopwords
+from nltk.corpus import wordnet as wn
 import re
 from spellchecker import SpellChecker
 import time
 import math
 import pprint
 
-start = time.time()
+_start = time.time()
 
 stopwords = set(stopwords.words('english'))
 lemmatizer = WordNetLemmatizer()
@@ -27,7 +28,7 @@ for node in course_nodes:
     map_node_id_to_node[node['_id']] = node
 
 
-def extract_node_tokens(node, remove_stopwords=True):
+def __extract_node_tokens(node, remove_stopwords=True):
     title = str(node['name']).lower()
     description = str(node['description']).lower()
     term_names = map(lambda x: x['name'], node['subjects'])
@@ -39,12 +40,28 @@ def extract_node_tokens(node, remove_stopwords=True):
 
     term_tokens = []
     for name in term_names:
-        term_tokens.extend(preprocess_text(name, remove_stopwords))
+        term_tokens.extend(__preprocess_text(name, remove_stopwords))
 
-    return term_tokens + preprocess_text(title, remove_stopwords) + preprocess_text(title, remove_stopwords) + preprocess_text(description, remove_stopwords)
+    tokens = term_tokens + __preprocess_text(
+        title, remove_stopwords
+    ) + __preprocess_text(
+        title, remove_stopwords
+    ) + __preprocess_text(
+        description, remove_stopwords
+    )
+
+    # remove tokens that aren't in wordnet
+    # for i, token in enumerate(tokens):
+    #     if token not in wn.all_lemma_names():
+    #         print('Excluding non word ' + tokens[i])
+    #         del tokens[i]
+
+    return tokens
 
 
-def preprocess_text(text, remove_stopwords=False):
+def __preprocess_text(text, remove_stopwords=False):
+    # remove dashes
+    text = text.replace('-', ' ')
     tokens = word_tokenize(str(text).lower())
 
     # filter out things that aren't pure letters
@@ -58,16 +75,11 @@ def preprocess_text(text, remove_stopwords=False):
     return tokens
 
 
-map_term_to_document_count = {}
-map_document_to_term_count = {}
-map_document_to_total_term_count = {}
-
-
-def obtain_training_models(nodes):
+def __obtain_training_models(nodes):
     tokens = []
 
     for node in nodes:
-        node_tokens = extract_node_tokens(node, remove_stopwords=False)
+        node_tokens = __extract_node_tokens(node, remove_stopwords=False)
         lemmas = list(map(lambda x: lemmatizer.lemmatize(x), node_tokens))
 
         tokens.extend(lemmas)
@@ -75,6 +87,7 @@ def obtain_training_models(nodes):
         # store lemmas
         node_id = node['_id']
         map_document_to_term_count[node_id] = {}
+        map_document_to_term_list[node_id] = []
         map_document_to_total_term_count[node_id] = len(lemmas)
 
         # store number of documents for a given lemma
@@ -85,23 +98,14 @@ def obtain_training_models(nodes):
             map_term_to_document_count[lemma].append(node_id)
             map_document_to_term_count[node_id][lemma] = map_document_to_term_count[node_id].get(lemma, 0) + 1
 
+            map_document_to_term_list[node_id].append(lemma)
+
     return tokens
 
 
-# Train models
-training_tokens = obtain_training_models(course_nodes)
-models.train_models(" ".join(training_tokens))
-spell.word_frequency.load_words(training_tokens)
-
-# print(map_term_to_document_count)
-# print(map_document_to_term_count)
-
-print('Loaded models in ' + str((time.time() - start) / 1000) + 'ms')
-
-
-def preprocess_search(query):
+def __preprocess_search(query):
     # create tokens
-    search_tokens = preprocess_text(query, remove_stopwords=False)
+    search_tokens = __preprocess_text(query, remove_stopwords=False)
 
     for i, token in enumerate(search_tokens):
         # attempt to spellcheck invalid tokens
@@ -132,7 +136,7 @@ def preprocess_search(query):
     return search_tokens
 
 
-def gather_relevant_documents(search_lemmas):
+def __gather_relevant_documents(search_lemmas):
     all_documents = set()
 
     for lemma in search_lemmas:
@@ -144,7 +148,7 @@ def gather_relevant_documents(search_lemmas):
     return all_documents
 
 
-def do_search(search_lemmas):
+def __do_search(search_lemmas):
     document_scores = {}
 
     # corpus of potential documents for this search.
@@ -191,7 +195,58 @@ def do_search(search_lemmas):
             weight = math.exp((len(overlap) / len(search_lemmas)) + 2)
             document_scores[doc_id] *= weight
 
-        # print(document_scores[doc_id])
+            # NOW! WEIGHT HEAVIER DOCUMENTS WHOSE OCCURANCES
+            # OF THE MULTIPLE TERMS ARE CLOSER TOGETHER.
+            all_doc_terms = map_document_to_term_list[doc_id]
+            map_term_to_indices = {}
+
+            # store a map of search lemma to indexes of their occurrences
+            for lemma in search_lemmas:
+                occurrences = [i for i, t in enumerate(all_doc_terms) if t == lemma]
+                if occurrences:
+                    map_term_to_indices[lemma] = occurrences
+
+            # attempt to find a path of the smallest 'width' that hits one index for each of the terms.
+            # it's easier to do this if we sort the term to indices with greatest # of indices first,
+            # as that number will be the number of paths we attempt to create.
+            sorted_indices = sorted(map_term_to_indices.values(), key=lambda item: len(item))
+            sorted_indices.reverse()
+
+            print(sorted_indices)
+            path_scores = []
+
+            # create a path for each of the starting indexes.
+            for starting_index in sorted_indices[0]:
+                # the selected indices for this path
+                path_indexes = [starting_index]
+
+                # for each subsequent layer, find the narrowest path from the previous layers
+                # then add that index to path_indexes
+                for i in range(1, len(sorted_indices)):
+                    layer_indices = sorted_indices[i]
+
+                    best_index = -1
+                    smallest_width = math.inf
+                    for potential_index in layer_indices:
+                        potential_indexes = path_indexes + [potential_index]
+                        potential_width = max(potential_indexes) - min(potential_indexes)
+
+                        if best_index == -1 or potential_width < smallest_width:
+                            best_index = potential_index
+                            smallest_width = potential_width
+
+                    path_indexes.append(best_index)
+
+                path_width = max(path_indexes) - min(path_indexes)
+                path_score = math.log(len(all_doc_terms) / path_width)
+                print("-->".join(map(lambda x: str(x), path_indexes)) + ': ' + str(path_width) + ' @' + str(path_score))
+                path_scores.append(path_score)
+
+            doc_proximity_mult = (sum(path_scores) / len(path_scores))
+            print('Proximity Mult ' + str(doc_proximity_mult))
+            document_scores[doc_id] *= doc_proximity_mult
+
+    # weight heavier documents that
 
     threshold = 0.1
     filtered_results = filter(lambda x: x[1] >= threshold, document_scores.items())
@@ -203,26 +258,43 @@ def do_search(search_lemmas):
     if not filtered_results and document_scores.items():
         print('Try a more specific query.')
 
+    result_tuples = []
+
     for result in filtered_results:
         res_id = result[0]
+        res_score = result[1]
+        res_name = map_node_id_to_node[res_id]["name"]
+        res_desc = map_node_id_to_node[res_id]["description"]
+        result_tuples.append((res_score, res_name, res_desc))
 
-        print('----------')
-        print('score ' + str(result[1]))
-        print('name ' + str(map_node_id_to_node[res_id]["name"]))
-        print('desc ' + str(map_node_id_to_node[res_id]["description"]))
+    return result_tuples
 
+
+map_term_to_document_count = {}
+map_document_to_term_count = {}
+map_document_to_term_list = {}
+map_document_to_total_term_count = {}
+
+# Train models
+training_tokens = __obtain_training_models(course_nodes)
+models.train_models(" ".join(training_tokens))
+spell.word_frequency.load_words(training_tokens)
+
+# print(map_term_to_document_count)
+# print(map_document_to_term_count)
+
+print('Loaded models in ' + str((time.time() - _start) / 1000) + 'ms')
 
 # pprint.pprint(map_term_to_document_count)
 # pprint.pprint(map_document_to_term_count)
 
-start = time.time()
+_start = time.time()
 
-SEARCH_QUERY = "econ"
-search_lemmas = preprocess_search(SEARCH_QUERY)
-print(search_lemmas)
-do_search(search_lemmas)
 
-print('Searched in ' + str((time.time() - start)) + 's')
+def search(query):
+    search_lemmas = __preprocess_search(query)
+    print(search_lemmas)
+    return __do_search(search_lemmas)
 
 # print(len(map_term_to_document_count['military']))
 # print(len(map_term_to_document_count['chinese']))

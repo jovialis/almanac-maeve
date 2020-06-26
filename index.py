@@ -36,7 +36,7 @@ first_node = course_nodes[0]
 #  1) look for exact
 
 
-def parse_node(node):
+def __parse_node(node):
     tokens = extract_node_tokens(node)
 
     # lemmatize tokens
@@ -64,4 +64,4 @@ def extract_node_tokens(node):
     return tokens
 
 
-parse_node(first_node)
+__parse_node(first_node)
