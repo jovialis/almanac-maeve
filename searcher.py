@@ -67,6 +67,11 @@ class Searcher:
             return
 
         query_tokens = self.__preprocess_search_query(query)
+
+        # ignore empty queries
+        if not query_tokens:
+            return []
+
         node_ids = self.__perform_search(query_tokens)
         nodes = self.__lookup_nodes(node_ids)
 
