@@ -31,6 +31,7 @@ class Searcher:
 
         self._indexes_collection = _search_db['docs']
         self._lemmas_collection = _search_db['lemmas']
+        self._cache_collection = _search_db['cached']
         self._nodes_collection = _modeling_db['nodes']
 
     def train(self):
@@ -72,11 +73,19 @@ class Searcher:
         if not query_tokens:
             return []
 
+        # discover cached query
+        cached_query = self.__load_cached_query(query_tokens)
+        if cached_query is not None:
+            return cached_query
+
+        # otherwise, return our nodes and cache
         node_ids = self.__perform_search(query_tokens)
         nodes = self.__lookup_nodes(node_ids)
 
-        return nodes
+        # cache results
+        self.__save_query_to_cache(query_tokens, nodes)
 
+        return nodes
 
     def __preprocess_search_query(self, query):
         # create tokens
@@ -110,6 +119,25 @@ class Searcher:
             search_tokens = non_stopwords
 
         return search_tokens
+
+    # attempts to discover a cached query
+    def __load_cached_query(self, search_lemmas):
+        # find cached result by terms
+        search_lemmas = sorted(search_lemmas)
+        cached_query = self._cache_collection.find_one({"terms": search_lemmas})
+        if not cached_query:
+            return None
+
+        return cached_query["results"]
+
+    # caches a search query
+    def __save_query_to_cache(self, search_lemmas, results):
+        # saves query to cache
+        search_lemmas = sorted(search_lemmas)
+        self._cache_collection.insert_one({
+            "terms": search_lemmas,
+            "results": results
+        })
 
     def __perform_search(self, search_lemmas):
         # print(search_lemmas)
