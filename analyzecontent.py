@@ -85,3 +85,7 @@ class AnalyzeContent:
     # returns a count of unique terms
     def content_token_count(self):
         return len(self.content_token_list())
+
+    # returns the body length according to body weight
+    def content_body_length(self):
+        return sum(self.content_token_weight_map().values())

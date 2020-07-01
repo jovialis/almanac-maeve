@@ -1,14 +1,16 @@
-from pymongo import MongoClient
-from bson.objectid import ObjectId
+import os
 import datetime
 import math
+
+from pymongo import MongoClient
+from bson.objectid import ObjectId
 
 from nodescraper import scrape_node_contents
 from analyzecontent import AnalyzeContent
 
-__client = MongoClient()
-__models_db = __client['modellingDB']
-__search_db = __client['searchDB']
+__client = MongoClient(os.environ.get('MONGODB_URI'))
+__models_db = __client[os.environ.get('NODE_DB')]
+__search_db = __client[os.environ.get('SEARCH_DB')]
 
 __nodes_collection = __models_db['nodes']
 __indexes_collection = __search_db['docs']
@@ -59,7 +61,7 @@ def index(node, output=True):
         "lemmas": node_lemmas,
         "lemmaWeights": analyzer.content_token_weight_map(),
         "body": analyzer.content_tokens_flattened_raw(),
-        "bodyLength": len(analyzer.content_tokens_flattened_raw())
+        "bodyLength": analyzer.content_body_length()
     }
 
     # update the document

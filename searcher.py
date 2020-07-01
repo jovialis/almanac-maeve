@@ -1,5 +1,6 @@
 from datetime import datetime
 import math
+import os
 
 from pymongo import MongoClient
 from autocomplete import models
@@ -24,9 +25,10 @@ class Searcher:
         self._stopwords = set(stopwords.words('english'))
 
         # instantiate db
-        _client = MongoClient()
-        _search_db = _client['searchDB']
-        _modeling_db = _client['modellingDB']
+        _client = MongoClient(os.environ.get('MONGODB_URI'))
+        _search_db = _client[os.environ.get('SEARCH_DB')]
+        _modeling_db = _client[os.environ.get('NODE_DB')]
+
         self._indexes_collection = _search_db['docs']
         self._lemmas_collection = _search_db['lemmas']
         self._nodes_collection = _modeling_db['nodes']
@@ -186,7 +188,7 @@ class Searcher:
                 sorted_indices = sorted(map_lemma_to_indices.values(), key=lambda item: len(item))
                 sorted_indices.reverse()
 
-                print(sorted_indices)
+                # print(sorted_indices)
                 path_scores = []
 
                 # create a path for each of the starting indexes.
