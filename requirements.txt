@@ -3,3 +3,4 @@ Flask~=1.1.2
 nltk~=3.5
 autocomplete~=0.0.104
 spellchecker~=0.4
+dnspython~=1.16.0
