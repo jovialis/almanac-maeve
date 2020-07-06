@@ -202,7 +202,7 @@ class Searcher:
             # if more than one of the search lemma are present, we weight the node heavier.
             if len(overlap) > 1:
                 weight = math.exp((len(overlap) / len(search_lemmas)) + 2)
-                doc_scores[doc_id] *= weight
+                doc_scores[doc_id] *= max([1, weight])
 
                 # NOW! WEIGHT HEAVIER DOCUMENTS WHOSE OCCURANCES
                 # OF THE MULTIPLE TERMS ARE CLOSER TOGETHER.
@@ -253,7 +253,7 @@ class Searcher:
 
                 doc_proximity_mult = (sum(path_scores) / len(path_scores))
                 # print('Proximity Mult x' + str(doc_proximity_mult))
-                doc_scores[doc_id] *= doc_proximity_mult
+                doc_scores[doc_id] *= max([1, doc_proximity_mult])
 
         # filter out docs below threshold then sort by score
         threshold = 0.1
