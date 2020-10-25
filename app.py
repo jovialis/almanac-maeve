@@ -42,13 +42,22 @@ def do_search():
     # pull out current page option
     page = int(request.args.get("page", 1))
 
-    # search for nodes
-    nodes = searcher.search(query)
-    exported_nodes = list(map(lambda n: export_node_contents(n), nodes))
-
     res = {
         "query": query
     }
+
+    # search for nodes
+    try:
+        nodes = searcher.search(query)
+    except Exception as err:
+        nodes = []
+        print(err)
+
+    if nodes == 'vague':
+        res["message"] = "vague"
+        nodes = []
+
+    exported_nodes = [export_node_contents(n) for n in nodes]
 
     if paginate:
         paginator = Paginator(exported_nodes, page)
